@@ -1,3 +1,4 @@
 const add = (a, b) => a / b
 const result = add(2, 1)
-result
+console.log(result)
+
