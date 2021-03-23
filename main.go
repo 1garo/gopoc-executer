@@ -41,12 +41,6 @@ func main() {
     */
     ctx, _ := v8go.NewContext()
     val, _ := ctx.RunScript(d.resp, "value.js")
-    // exec with golang std lib
-    data, err := exec.Command("node", "/home/hungaro/dev/go/gopoc-executer/index.js").Output()
-    if err != nil {
-      panic(err)
-    }
-    fmt.Printf("std lib: %s\n", data)
 		fmt.Printf("v8 lib: %s\n", val)
 	}
 
@@ -59,7 +53,8 @@ func readListFile(fileToProcess []string, rchan chan Result) {
 
 	for i, url := range fileToProcess {
 		results = append(results, make(chan Result))
-		go scrapParallel(url, results[i])
+		//go scrapParallel(url, results[i])
+		go execFileParallel(url, results[i])
 	}
 
 
@@ -68,6 +63,17 @@ func readListFile(fileToProcess []string, rchan chan Result) {
 			rchan <- r1
 		}
 	}
+}
+
+func execFileParallel(file string, rchan chan Result) {
+	defer close(rchan)
+  data, err := exec.Command("node", file).Output()
+  if err != nil {
+    panic(err)
+  }
+  var r Result
+  r.resp = string(data)
+	rchan <- r
 }
 
 func scrapParallel(file string, rchan chan Result) {
