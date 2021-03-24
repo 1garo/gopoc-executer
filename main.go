@@ -7,23 +7,15 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/1garo/gopoc-executer/handler"
-	//"rogchap.com/v8go"
+	"github.com/robertkrimen/otto"
+	"github.com/streadway/amqp"
+	"rogchap.com/v8go"
 )
-
-//Result exported
-type Result struct {
-	resp string
-}
-
-func (r Result) String() string {
-	return fmt.Sprint(r.resp)
-}
 
 func main() {
 	addr := ":8080"
@@ -38,7 +30,33 @@ func main() {
 	}
 
 	go func() {
-		process()
+		// start using otto lib
+		vm := otto.New()
+		value, _ := vm.Run(`
+			abc = 2 + 2;
+			//console.log("The value of abc is " + abc); // 4`)
+		log.Printf("otto lib -> %s\n", value)
+		// finish otto lib
+
+		// start using v8 lib
+		ctx, _ := v8go.NewContext()                             // creates a new V8 context with a new Isolate aka VM
+		ctx.RunScript("const add = (a, b) => a + b", "math.js") // executes a script on the global context
+		ctx.RunScript("const result = add(3, 4)", "main.js")    // any functions previously added to the context can be called
+		val, _ := ctx.RunScript("result", "value.js")           // return a value in JavaScript back to Go
+		log.Printf("v8 lib -> %s\n", val)
+		// finish v8 lib
+
+		// non-lib method and rabbit conn
+		conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+		handler.FailOnError(err, "Failed to connect to RabbitMQ")
+		defer conn.Close()
+
+		ch, q := handler.StartConn(conn)
+
+		handler.Sender(q, ch)
+		handler.Consumer(q, ch)
+		defer ch.Close()
+
 		server.Serve(listener)
 	}()
 	defer Stop(server)
@@ -49,72 +67,6 @@ func main() {
 	log.Println(fmt.Sprint(<-ch))
 	log.Println("Stopping API server.")
 }
-
-func process() {
-	fileToProcess := []string{
-		"/home/hungaro/dev/go/gopoc-executer/data/t1.js",
-		"/home/hungaro/dev/go/gopoc-executer/data/t2.js",
-		"/home/hungaro/dev/go/gopoc-executer/data/t3.js",
-		"/home/hungaro/dev/go/gopoc-executer/data/t4.js",
-	}
-
-	ini := time.Now()
-	r := make(chan Result)
-	go readListFile(fileToProcess, r)
-	for d := range r {
-		fmt.Print(d.resp)
-		/*
-			v8-lib
-			i.e cannot use console.log
-			i.e need to return the var in the end of the file
-				to catch the return
-			ctx, _ := v8go.NewContext()
-			val, _ := ctx.RunScript(d.resp, "value.js")
-			fmt.Printf("v8 lib: %s\n", val)
-		*/
-	}
-
-	fmt.Println("(Took ", time.Since(ini).Seconds(), "secs)")
-}
-
-func readListFile(fileToProcess []string, rchan chan Result) {
-	defer close(rchan)
-	var results = []chan Result{}
-
-	for i, url := range fileToProcess {
-		results = append(results, make(chan Result))
-		//go v8Parallel(url, results[i])
-		go execFileParallel(url, results[i])
-	}
-
-	for i := range results {
-		for r1 := range results[i] {
-			rchan <- r1
-		}
-	}
-}
-
-func execFileParallel(file string, rchan chan Result) {
-	defer close(rchan)
-	data, err := exec.Command("node", file).Output()
-	if err != nil {
-		panic(err)
-	}
-	var r Result
-	r.resp = string(data)
-	rchan <- r
-}
-
-// func v8Parallel(file string, rchan chan Result) {
-// 	defer close(rchan)
-// 	f, err := ioutil.ReadFile(file)
-// 	if err != nil {
-// 		return
-// 	}
-// 	var r Result
-// 	r.resp = string(f)
-// 	rchan <- r
-// }
 
 func Stop(server *http.Server) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
