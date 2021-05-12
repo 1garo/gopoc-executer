@@ -2,6 +2,8 @@ package handler
 
 import (
 	"fmt"
+	// "log"
+	// "log"
 	"net/http"
 	"os/exec"
 	"time"
@@ -9,6 +11,7 @@ import (
 	"github.com/go-chi/chi"
 	"github.com/go-chi/render"
 	"github.com/streadway/amqp"
+	"rogchap.com/v8go"
 )
 
 //Result exported
@@ -41,27 +44,46 @@ func notFoundHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func Process() {
+	// non lib mock
 	fileToProcess := []string{
-		"/home/hungaro/dev/go/gopoc-executer/data/t1.js",
-		"/home/hungaro/dev/go/gopoc-executer/data/t2.js",
-		"/home/hungaro/dev/go/gopoc-executer/data/t3.js",
-		"/home/hungaro/dev/go/gopoc-executer/data/t4.js",
+		//"/home/hungaro/dev/ts/ee-card/dist/src/index.js/home/hungaro/dev/go/gopoc-executer/nodecsv-lfiles/index.js",
+
+    //"/home/hungaro/dev/ts/ee-card/dist/src/index.js",
+    "dist/src/index.js",
+		//"/home/hungaro/dev/go/gopoc-executer/data/t1.js",
+		// "/home/hungaro/dev/go/gopoc-executer/data/t2.js",
+		// "/home/hungaro/dev/go/gopoc-executer/data/t3.js",
+		// "/home/hungaro/dev/go/gopoc-executer/data/t4.js",
 	}
+	// v8 mock
+	// fileToProcess := []string{
+	// 	"/home/hungaro/dev/go/gopoc-executer/data-v8/t1.js",
+	// 	"/home/hungaro/dev/go/gopoc-executer/data-v8/t2.js",
+	// 	"/home/hungaro/dev/go/gopoc-executer/data-v8/t3.js",
+	// 	"/home/hungaro/dev/go/gopoc-executer/data-v8/t4.js",
+	// }
 
 	ini := time.Now()
 	r := make(chan Result)
 	go readListFile(fileToProcess, r)
 	for d := range r {
-		fmt.Print(d.resp)
-		/*
-			v8-lib
-			i.e cannot use console.log
-			i.e need to return the var in the end of the file
-				to catch the return
-			ctx, _ := v8go.NewContext()
-			val, _ := ctx.RunScript(d.resp, "value.js")
-			fmt.Printf("v8 lib: %s\n", val)
-		*/
+		fmt.Print("data -> ", d.resp)
+		ctx, _ := v8go.NewContext() // creates a new V8 context with a new Isolate aka VM
+		val, err := ctx.RunScript("", "data/t2.js")
+		if err != nil {
+			switch err := err.(type) {
+			case *v8go.JSError:
+				// fmt.Println(err.Message)    // the message of the exception thrown
+				// fmt.Println(err.Location)   // the filename, line number and the column where the error occured
+				// fmt.Println(err.StackTrace) // the full stack trace of the error, if available
+
+				fmt.Printf("javascript error: %v\n", err)        // will format the standard error message
+				fmt.Printf("javascript stack trace: %+v\n", err) // will format the full error stack trace
+			default:
+				fmt.Println("v8 error -> ", err)
+			}
+		}
+		fmt.Println("v8 process -> ", val)
 	}
 
 	fmt.Println("(Took ", time.Since(ini).Seconds(), "secs)")
@@ -74,7 +96,8 @@ func readListFile(fileToProcess []string, rchan chan Result) {
 
 	for i, url := range fileToProcess {
 		results = append(results, make(chan Result))
-		//go v8Parallel(url, results[i])
+		// v8 lib parallel execution
+		// go v8Parallel(url, results[i])
 		go execFileParallel(url, results[i])
 	}
 
@@ -87,10 +110,15 @@ func readListFile(fileToProcess []string, rchan chan Result) {
 
 func execFileParallel(file string, rchan chan Result) {
 	defer close(rchan)
-	data, err := exec.Command("node", file).Output()
+	cmd := exec.Command("node", file)
+  // TODO: rewrite this function to be able to read stream from api output
+	data, err := cmd.CombinedOutput()
+	fmt.Println("Result: " + string(data))
 	if err != nil {
-		panic(err)
+		fmt.Println(fmt.Sprint(err) + ": " + string(data))
+		return
 	}
+	fmt.Println("Result: " + string(data))
 	var r Result
 	r.resp = string(data)
 	rchan <- r
@@ -115,7 +143,6 @@ func StartConn(conn *amqp.Connection) (*amqp.Channel, *amqp.Queue) {
 	ch, err := conn.Channel()
 	FailOnError(err, "Failed to open a channel")
 
-	
 	q, err := ch.QueueDeclare(
 		"hello", // name
 		false,   // durable
